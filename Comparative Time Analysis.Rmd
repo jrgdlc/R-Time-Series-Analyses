@@ -1,0 +1,1184 @@
+---
+title: "Comparative Time-Series Analysis: Diamond and Gold"
+author: "Jorge de la Cruz"
+date: "5/10/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+    theme: flatly
+  pdf_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars, message = FALSE, include = FALSE}
+library(readr)
+library(generics)
+library(broom)
+library(car)
+library(lmtest)
+library(datasets)
+library(leaps)
+library(tidyverse)
+library(caret)
+library(tseries)
+library(forecast)
+```
+
+# Introduction
+
+This project was inspired by the multiple time-series analysis tools I learned at UCLA which I wanted to refresh my memory on. The dataset I selected compares diamond and gold price data with other variables everyday between March 2018 and June 2021 thereby being 1134 observations across 6 variables. This means that the dataset is large and very useful for the time-series analysis project. Furthermore, while this project initially focuses on the `diamond price` variable, I will still be modeling and comparing the other variables. Specifically, I will firstly start by understanding the data and variables through simple visualizations and tables as they are in the dataset. Then, I will convert these into time-series using the `library(tseries)` and analyze the ACF, PACF, and stationarity of each time-series. Finally, I will run three different models on each variable, these being an Autoregressive (AR), Autoregressive Distributed Lag Model (ARDL), and Vector Autoregressions (VARs). The goal of this analysis is to understand which of these models best fits the data and produces the most accurate forecast of the variables.
+
+# Understanding the Data
+
+```{r readcsv, warning = FALSE, message = FALSE}
+dia <- read_csv("diamond_data_merged_with_other_variables.csv")
+```
+
+This dataset was originally sourced from Kaggle and compiled by user
+Sibelius_5. It is constituted of 1134 observations across 6 variables
+with these variables being date, diamond price, inflation rate, interest
+rate, fed rate, and gold price. For the rates, it is important to note
+that this is within the United States, with the fed rate referring to
+the federal funds rate. In order to gain a basic understanding of these
+variables, I will plot these variables across time, compare their
+histograms, and examine their summary tables.
+
+## Plots
+
+#### Diamond Price Plot
+
+```{r diaplots, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+library(ggplot2)
+diaplots <- ggplot(data=dia) + 
+  geom_point(aes(x=date,y=`diamond price`), color = "gray") +
+  geom_smooth(aes(x=date,y=`diamond price`), color = "blue") +
+  ggtitle("Diamond Price (March 2018 - June 2021)") +
+  xlab("Date") + ylab("Price (USD)")
+diaplots
+```
+
+Since late 2018, the plot shows that there has been a continual decline
+in diamond prices until mid 2020. From that point on, there has been a
+constant increase until the end of timespan in the data set. The smooth
+fit from the `library(ggplot2)` fits the data seemingly very well.
+
+#### Gold Price Plot
+
+```{r goldplots, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+goldplots <- ggplot(data=dia) + 
+  geom_point(aes(x=date,y=`gold price`), color = "gray") +
+  geom_smooth(aes(x=date,y=`gold price`), color = "red") +
+  ggtitle("Gold Price (March 2018 - June 2021)") +
+  xlab("Date") + ylab("Price (USD)")
+goldplots
+```
+
+The plot for gold price is seemingly inverse to the diamond price plot,
+with a gradual increase in price since late 2018 peaking in late 2020.
+The plot points seem somewhat more spread out than with diamond price
+and this is range of prices are way lower.
+
+#### Inflation Rate Plot
+
+```{r inflplots, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+inflplots <- ggplot(data=dia) + 
+  geom_point(aes(x=date,y=`inflation rate`), color = "gray") +
+  geom_smooth(aes(x=date,y=`inflation rate`), color = "orange") +
+  ggtitle("Inflation Rate (March 2018 - June 2021)") +
+  xlab("Date") + ylab("Percent %")
+inflplots
+```
+
+Inflation rates between 2018 and 2020 declined somewhat from slightly
+above 2.0% to around 1.5%. It is interesting to note the large dip on
+the week of the 16th March, 2020 which coincides with the start of
+mandated lockdowns in the United States during the COVID-19 pandemic.
+From that week on, there was a fairly steep increase until the end of
+data set.
+
+#### Interest Rate Plot
+
+```{r intrplots, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+intrplots <- ggplot(data=dia) + 
+  geom_point(aes(x=date,y=`interest rate`), color = "gray") +
+  geom_smooth(aes(x=date,y=`interest rate`), color = "green") +
+  ggtitle("Interest Rate (March 2018 - June 2021)") +
+  xlab("Date") + ylab("Percent %")
+intrplots
+```
+
+Essentially throughout the span of the data, there has been a gradual
+decline eventually dipping into the negative at the beginning of 2020.
+Furthermore, the dip in inflation rates coincides with the sharp peak in
+interest rates during the same week. The trends in interest and
+inflation during this time reflect the supply chain issues during this
+period.
+
+#### Federal Funds Rate Plot
+
+```{r fedplots, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+fedplots <- ggplot(data=dia) + 
+  geom_point(aes(x=date,y=`fed rate`), color = "gray") +
+  geom_smooth(aes(x=date,y=`fed rate`), color = "yellow") +
+  ggtitle("Federal Funds Rate (March 2018 - June 2021)") +
+  xlab("Date") + ylab("Percent %")
+fedplots
+```
+
+The sharp decline in the federal funds rate shows the Federal Reserve's
+attempt to try stimulate the economy by increasing the money supply. It
+is interesting to note that since the federal funds rate is determined
+by the Federal Reserve, the points are clearly distributed in a somewhat
+different way than in the other graphs.
+
+## Histograms
+
+### Diamond Price Frequency
+
+```{r diahists, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+library(ggplot2)
+diahist <- ggplot(data=dia) + 
+  geom_histogram(aes(x=`diamond price`), color = "blue", fill = "gray") +
+  ggtitle("Diamond Price Frequency (March 2018 - June 2021)") +
+  xlab("Price (USD)") + ylab("Frequency")
+diahist
+```
+
+The histogram for diamond prices reveals that there are four different
+peaks. The biggest peaks are around 9800 USD and 10300 USD and it
+broadly ranges between 9250 and 11000.
+
+### Gold Price Frequency
+
+```{r goldhists, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+goldhist <- ggplot(data=dia) + 
+  geom_histogram(aes(x=`gold price`), color = "red", fill = "gray") +
+  ggtitle("Gold Price Frequency (March 2018 - June 2021)") +
+  xlab("Price (USD)") + ylab("Frequency")
+goldhist
+```
+
+Gold prices have a sharp peak around 1300 USD. It is interesting that
+there seem to be peaks around the uneven 200 USD intervals (ie 1300,
+1500, etc.). These prices range between 1100 USD and 2100 USD.
+
+### Inflation Rate Frequency
+
+```{r inflhists, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+inflhist <- ggplot(data=dia) + 
+  geom_histogram(aes(x=`inflation rate`), color = "orange", fill = "gray") +
+  ggtitle("Inflation Rate Frequency (March 2018 - June 2021)") +
+  xlab("Percent %") + ylab("Frequency")
+inflhist
+```
+
+The most common frequencies of inflation rates lie between 1.5% and
+2.2%. Indeed, the biggest peak is around 2.2% which makes sense given
+that the Fed usually sets 2% as the target for their inflation rates.
+
+### Interest Rate Frequency
+
+```{r intrhists, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+intrhist <- ggplot(data=dia) + 
+  geom_histogram(aes(x=`interest rate`), color = "green", fill = "gray") +
+  ggtitle("Interest Rate Frequency (March 2018 - June 2021)") +
+  xlab("Percent %") + ylab("Frequency")
+intrhist
+```
+
+There are three clear peaks in interest rates around -1.0, 0.15, 0.75.
+It's interesting to contrast this with the inflation as that
+distribution is evidently more skewed to one side whereas interest
+fluctuates a lot more. This is likely explained by the fact that the Fed
+does not directly target a specific interest rate. While not relevant
+for our time-series model, these trends that reflect the fiscal policies
+of the Fed are a very interesting curiosity.
+
+### Federal Funds Rate Frequency
+
+```{r fedhists, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+fedhist <- ggplot(data=dia) + 
+  geom_histogram(aes(x=`fed rate`), color = "yellow", fill = "gray") +
+  ggtitle("Federal Funds Rate Frequency (March 2018 - June 2021)") +
+  xlab("Percent %") + ylab("Frequency")
+fedhist
+```
+
+The stratification of the federal funds rate, which was already visible
+in the scatterplot, is made much more clear by the histogram. The
+frequency of the very very low rate around 0.05 shows the monetary
+policy of the Fed trying to increase the money supply.
+
+## Summary Tables
+
+### Diamond Price Summary
+
+```{r diasummaries}
+summary(dia$`diamond price`)
+```
+
+The median diamond price between 2018 and 2021 was 10005 USD with the
+mean price being very close at 10016 USD.
+
+### Gold Price Summary
+
+```{r goldsummaries}
+summary(dia$`gold price`)
+```
+
+For gold prices, the median was 1502 USD and, again, the mean was only
+slightly higher at 1538 USD.
+
+### Inflation Rate Summary
+
+```{r inflsummaries}
+summary(dia$`inflation rate`)
+```
+
+Inflation rates had a median percentage of 1.78% and mean of 1.81%.
+Given that the target Fed inflation was around 2%, it seems to have
+slightly missed it.
+
+### Interest Rate Summary
+
+```{r intrsummaries}
+summary(dia$`interest rate`)
+```
+
+Median interest rates between 2018 and 2021 were 0.12% while the mean
+was 0.02%. It fluctuates quite evenly between the maximum and minimum
+values.
+
+### Federal Funds Rate
+
+```{r fedsummaries}
+summary(dia$`fed rate`)
+```
+
+The median federal funds rate was 1.58% with the mean coming in even
+lower at 1.26%. This makes sense given the frequency of the very low fed
+rate at 0.05% bringing the mean down.
+
+# Time-Series Conversion and Analysis
+
+### Diamond Price
+
+```{r 5, error=TRUE, fig.align='center'}
+ts_data <- ts(dia)
+# Keeping this here to demonstrate how it was coded. 
+# The subsequent code will not be shown for this section.
+diapr.ts <- ts(dia$`diamond price`, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(diapr.ts)
+adf.test(diapr.ts)
+```
+
+The stationarity plot tells us that diamond price returns to its mean
+and has a constant variance. However, the ACF plot is very concerning
+and shows that the data must be transformed as currently there are serially correlated. errors. Subsequent plots will be done for the sake of completion but they all illustrate the same problem with their ACF plots.
+
+The Augmented Dickey-Fuller (ADF) test reflects this too with a high
+p-value rejecting the null hypothesis that the data is stationary.
+
+### Gold Price
+
+```{r 6, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+goldpr.ts <- ts(dia$`gold price`, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(goldpr.ts)
+adf.test(goldpr.ts)
+```
+
+### Inflation Rate
+
+```{r 7, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+infl.ts <- ts(dia$`inflation rate`, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(infl.ts)
+adf.test(infl.ts)
+```
+
+### Interest Rate
+
+```{r 8, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+intr.ts <- ts(dia$`interest rate`, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(intr.ts)
+adf.test(intr.ts)
+```
+
+### Fed Rate
+
+```{r 9, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+fedr.ts <- ts(dia$`fed rate`, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(fedr.ts)
+adf.test(fedr.ts)
+```
+
+# Stationarity Correction
+
+Given the problems with the ACF, it is important to transform the data in order to correct for this. I will do this through differencing which is often useful for removing any trends or seasonality within the data, as well as then taking logs of these differences
+
+```{r stationarity}
+# First-order differencing for daily data
+differenced_data <- as.data.frame(diff(ts_data))
+differenced_data$diamond <- rev(differenced_data$`diamond price`)
+differenced_data$gold <- rev(differenced_data$`gold price`)
+differenced_data$interest <- rev(differenced_data$`interest rate`)
+differenced_data$inflation <- rev(differenced_data$`inflation rate`)
+differenced_data$fed <- rev(differenced_data$`fed rate`)
+```
+
+### Diamond Price
+
+```{r 5a, error=TRUE, fig.align='center'}
+# Keeping this here to demonstrate how it was coded. 
+# The subsequent code will not be shown for this section.
+diampr.ts <- ts(differenced_data$diamond, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(diampr.ts)
+adf.test(diampr.ts)
+```
+
+The stationarity plot tells us that diamond price returns to its mean
+and has a constant variance. The ACF plot seems to have no patterns with
+significant lags around 0, 5, 18, 23, and 28. The PACF is similar in
+distribution, with the negative lags being more significant.
+
+The ADF test gives a p-value less than 0.05 thus we accept the null
+hypothesis and conclude that the data is stationary.
+
+### Gold Price
+
+```{r 6a, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+goldpr.ts <- ts(differenced_data$gold, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(goldpr.ts)
+adf.test(goldpr.ts)
+```
+
+The data for gold price is stationary, with constant variation away from
+the mean. According to the PACF, the first two lags are significant with
+others roughly around 6, 10, 16, 20, and 35. The ADF test reinforces
+this by resulting in a small p-value thus this is stationary.
+
+### Inflation Rate
+
+```{r 7a, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+infl.ts <- ts(differenced_data$inflation, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(infl.ts)
+adf.test(infl.ts)
+```
+
+Inflation rate is stationary. According the the PACF, there is no
+pattern to which lags are significant, with most under 6 being relevant
+as well as many around 25 and 35. The ADF test also has a small p-value
+so we conclude inflation is stationary.
+
+### Interest Rate
+
+```{r 8a, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+intr.ts <- ts(differenced_data$interest, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(intr.ts)
+adf.test(intr.ts)
+```
+
+Interest rate is also stationary as shown by the ADF p-value. From the
+PACF, the first few lags are important, with some later lags also having
+higher importance than the rest.
+
+### Fed Rate
+
+```{r 9a, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+fedr.ts <- ts(differenced_data$fed, start=c(1), end=c(1134), frequency=6) 
+tsdisplay(fedr.ts)
+adf.test(fedr.ts)
+```
+
+The ADF test shows that the data is stationary. The ACF and PACF show
+that there are few significant lags with the only ones being around 13,
+15, and 24.
+
+Therefore, the differencing method was successful in transforming the data but we must keep in mind that the subsequent analysis will be on the differences of our variables instead of the direct variable.
+
+# Autoregressive Models
+
+In this section, we will look at how our variables fit into
+autoregressive (AR) models and evaluating the performance of each by
+analyzing the residual plots of the time-series, then forecasting our variable 10 days into the future.
+
+Autoregressive models are powerful when used with stationary data and for simple short-term forecasting where external variables do not play a significant role. They take the general form:
+
+$X_t=ϕ_1 X_{t-1} + ϕ_2 X_{t-2} + ...+ ϕ_p X_{t-p} +ε_t$
+
+This means that while we expect these models to be useful and their forecasts somewhat accurate, it is likely that most of these variables will perform better with ARDL models. This is because we know that external factors do play a role, especially in how inflation and interests affect prices. Nevertheless, it is important to first run these models so we can compare them and test this hypothesis.
+
+
+```{r 10, error=TRUE}
+dia.ts <- ts(differenced_data, start = c(1), end=c(1134), frequency = 6)
+```
+
+### Diamond Price
+
+```{r 11, error=TRUE}
+# Setting y variable - diamond price
+ydp <- differenced_data[,"diamond"]
+```
+
+#### Fitting the Model
+
+```{r 12, error=TRUE, fig.align='center'}
+dia.ar = ar(ydp, aic=TRUE, order.max = NULL, method = "ols")
+dia.ar$aic
+dia.ar = ar(ydp, aic=TRUE, order.max = 1, method = "ols")
+tsdisplay(dia.ar$resid)
+```
+
+Firstly, we see that the AIC of the different lags is lowest at 1. Therefore, we set the `order.max = 1`.
+
+The ACF and PACF of these residuals are mostly positive, and the most
+positively correlated lags are just after lag 20. However, according to the PACF the only significant lag is 23 while the ACF also has 28 as significant as well.
+
+#### Test-Train Cross-Validation
+
+```{r 13, error=TRUE, fig.align='center'}
+# Creating test and train data sets
+set.seed(12)
+Row.number <- sample(1:nrow(differenced_data), 0.67*nrow(differenced_data))
+Train = differenced_data[Row.number,]
+Test = differenced_data[-Row.number,] 
+# Dimensions of test and train
+dim(Train)
+dim(Test)
+# Regressions and testing with MSE
+dia.train = lm(Train$diamond~ Train$date, data=Train)
+dia.test = lm(Test$diamond~Test$date, data=Test)
+plot(residuals(dia.train), main = "Residuals of Train Data")
+mean((Train$diamond - predict(dia.train, Train)) ^2)
+mean((Test$diamond - predict(dia.test, Test)) ^2)
+```
+
+The test-train cross-validation we used divides our data set into a train (67%) and test (33%) sets. By fitting the autoregressive model of diamond price onto the train and test data sets, and then comparing the MSE's of each fit, we can determine whether the model is good in a general setting or only works within our data. With a train MSE of 79.3 and test MSE of 657.6 which suggests that for diamond price the model is severely overfit and not good in a general setting.
+
+#### Forecasting
+
+```{r 14, error=TRUE, fig.align='center'}
+dia.fr <- forecast(dia.ar, 10)
+plot(dia.fr, main = "Diamond Price Differences")
+```
+
+Here, we are forecasting the diamond price differences 10 days into the future and it seems to follow on seamlessly from the pre-existing time-series plot, which is very encouraging. However, it might also be useful to look at the diamond price itself, rather than the differences. This will require some transformation of the data which is shown below.
+
+``` {r diaforecast, fig.align='center'}
+differences <- c(dia.fr$mean)
+
+# Loop creating the series of forecasted diamond prices based on the differences.
+series <- vector(length = 5)
+series[1] <- 10385.16
+for (i in 2:10) {
+  series[i] <- series[i-1] + differences[i-1] 
+}
+
+# Transforming this into a dataset and combining with the dates.
+forecasteddiamonds <- c(dia$`diamond price`, series)
+forecasteddiamonds <- as.data.frame(forecasteddiamonds)
+forecasteddiamonds$dates <- c(as_date(c("2021-06-14","2021-06-13","2021-06-12","2021-06-11","2021-06-10","2021-06-09","2021-06-08","2021-06-07","2021-06-06","2021-06-05")), dia$`date`)
+forecasteddiamonds$forecast <- forecasteddiamonds$dates > "2021-06-05"
+
+# Plotting between April and June 2021.
+frplot.dia <- ggplot(data = forecasteddiamonds, aes(x = dates, y = forecasteddiamonds, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2021-04-01"), as.Date("2021-06-14")) + ylim(10000, 10500) +
+  ggtitle("Diamond Price Forecast (April 2021 - June 2021)") +
+  xlab("Date") + ylab("Price (USD)")
+frplot.dia
+```
+
+Therefore, the forecast shows that diamond prices will continue to increase at more or less the same rate as it already has been throughout June. This forecast is only looking 10 days into the future, so around a week, thus this makes sense as we would not expect large changes within a week unless there is some anomalous occurrence.
+
+### Gold Price
+
+```{r 27, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+ygold <- differenced_data[,"gold"]
+```
+
+#### Fitting the Model
+
+```{r 12g, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+gold.ar = ar(ygold, aic=TRUE, order.max = NULL, method = "ols")
+gold.ar$aic
+gold.ar = ar(ygold, aic=TRUE, order.max = 2, method = "ols")
+tsdisplay(gold.ar$resid)
+```
+The AIC is lowest at an order of 2 therefore, that will be our max order.
+
+The ACF and PACF of these residuals are mostly negative, and the most
+negatively correlated lags are around 5 to 10. However, according to the PACF the only significant lags are 6 and 22 while the same is true of the ACF.
+
+#### Test-Train Cross-Validation
+
+```{r 13g, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+gold.train = lm(Train$gold~ Train$date, data=Train)
+gold.test = lm(Test$gold~Test$date, data=Test)
+plot(residuals(gold.train), main = "Residuals of Train Data")
+mean((Train$gold - predict(gold.train, Train)) ^2)
+mean((Test$gold - predict(gold.test, Test)) ^2)
+```
+
+For gold price, we found that our train MSE is 281.4 and our test MSE is 286.2. These are significantly closer than in our diamond price model and indicate that our model works well and can generalize to new data. Therefore, within the data our diamond price model was better but outside of the data (ie in general) the gold price model performs better.
+
+
+#### Forecasting
+
+```{r 14g, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+gold.fr <- forecast(gold.ar, 10)
+plot(gold.fr, main = "Gold Price Differences")
+```
+
+Just as we did with the diamond prices, we are forecasting gold price difference 10 days into the future. While our forecasting has significantly less variation, it continues on from the previous plot which is a good sign.
+
+``` {r goldforecast, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+golddifferences <- c(gold.fr$mean)
+
+# Loop creating the series of forecasted diamond prices based on the differences.
+goldseries <- vector(length = 5)
+goldseries[1] <- 1890.97
+for (i in 2:10) {
+  goldseries[i] <- goldseries[i-1] + golddifferences[i-1] 
+}
+
+# Transforming this into a dataset and combining with the dates.
+forecastedgold <- c(dia$`gold price`, goldseries)
+forecastedgold <- as.data.frame(forecastedgold)
+forecastedgold$dates <- c(as_date(c("2021-06-14","2021-06-13","2021-06-12","2021-06-11","2021-06-10","2021-06-09","2021-06-08","2021-06-07","2021-06-06","2021-06-05")), dia$`date`)
+forecastedgold$forecast <- forecastedgold$dates > "2021-06-05"
+
+# Plotting between April and June 2021.
+frplot.gold <- ggplot(data = forecastedgold, aes(x = dates, y = forecastedgold, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2021-04-01"), as.Date("2021-06-14")) +
+  ggtitle("Gold Price Forecast (April 2021 - June 2021)") +
+  xlab("Date") + ylab("Price (USD)")
+frplot.gold
+```
+
+Interestingly, our forecast predicts that the price will peak at around 1900 USD and, given the margins of error, hover around this price or even decline slightly. This reflects the higher volatility of gold prices compared to diamond prices as we can see from the previous months so our forecasts seem to make sense.
+
+
+### Inflation Rate
+
+```{r 15, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+yinfr <- differenced_data[,"inflation"]
+```
+
+#### Fitting the Model
+
+```{r 12if, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+infr.ar = ar(yinfr, aic=TRUE, order.max = NULL, method = "ols")
+infr.ar$aic
+infr.ar = ar(yinfr, aic=TRUE, order.max = 28, method = "ols")
+tsdisplay(infr.ar$resid)
+```
+The AIC is lowest at an order of 28 therefore, that will be our max order.
+
+Our ACF and PACF residual plots show no significant lags, indicating that our model fits our data well and will likely perform well in the train-test cross-validation as our residuals have no structure.
+
+#### Test-Train Cross-Validation
+
+```{r 13if, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+infr.train = lm(Train$inflation~ Train$date, data=Train)
+infr.test = lm(Test$inflation~Test$date, data=Test)
+plot(residuals(infr.train), main = "Residuals of Train Data")
+mean((Train$inflation - predict(infr.train, Train)) ^2)
+mean((Test$inflation - predict(infr.test, Test)) ^2)
+```
+ 
+Our results give us the lowest MSEs thus far for both train and test, however it is important to note that these are relative to the range of values of the inflation range. The train MSE is 0.00077 while the test MSE is 0.00056. This again reinforces that our model is doing well to generalize to new data and is not overfitting.
+
+
+#### Forecasting
+
+```{r 14if, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+infr.fr <- forecast(infr.ar, 10)
+plot(infr.fr, main = "Inflation Rate Differences")
+```
+Again, the plot of the forecasted differences fits our data without the noise and variation, which is to be expected from a forecast. 
+
+``` {r infrforecast, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+infrdifferences <- c(infr.fr$mean)
+
+# Loop creating the series of forecasted diamond prices based on the differences.
+infrseries <- vector(length = 5)
+infrseries[1] <- 2.40
+for (i in 2:10) {
+  infrseries[i] <- infrseries[i-1] + infrdifferences[i-1] 
+}
+
+# Transforming this into a dataset and combining with the dates.
+forecastedinfr <- c(dia$`inflation rate`, infrseries)
+forecastedinfr <- as.data.frame(forecastedinfr)
+forecastedinfr$dates <- c(as_date(c("2021-06-14","2021-06-13","2021-06-12","2021-06-11","2021-06-10","2021-06-09","2021-06-08","2021-06-07","2021-06-06","2021-06-05")), dia$`date`)
+forecastedinfr$forecast <- forecastedinfr$dates > "2021-06-05"
+
+# Plotting between April and June 2021.
+frplot.infr <- ggplot(data = forecastedinfr, aes(x = dates, y = forecastedinfr, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2021-04-01"), as.Date("2021-06-14")) + ylim(1,2.6) +
+  ggtitle("Inflation Rate Forecast (April 2021 - June 2021)") +
+  xlab("Date") + ylab("Percent %")
+frplot.infr
+```
+The plot for how inflation rate is predicted to change shows that our forecast remains within the range of the previous week, with a prediction that it will hover around 2.4%. Previously, we found that the Fed targets an inflation rate of around 2% and our forecast follows on fairly seamlessly which is a good indication that our inflation rate autoregressive model works well.
+
+### Interest Rate
+
+```{r 19, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+yinrt <- differenced_data[,"interest"]
+```
+
+#### Fitting the Model
+
+```{r 12it, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+inrt.ar = ar(yinrt, aic=TRUE, order.max = NULL, method = "ols")
+inrt.ar$aic
+inrt.ar = ar(yinrt, aic=TRUE, order.max = 3, method = "ols")
+tsdisplay(inrt.ar$resid)
+```
+For our inflation rate autoregression, the lowest AIC is at an order of 3 thus this will be our max order.
+
+The ACF and PACF seem to trend more so towards the negative however, only two lags are considered significant by these plots: lags 11 and 14. Generally, there doesnt seem to be any structure to our residuals which is good.
+
+#### Test-Train Cross-Validation
+
+```{r 13it, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+inrt.train = lm(Train$interest~ Train$date, data=Train)
+inrt.test = lm(Test$interest~Test$date, data=Test)
+plot(residuals(inrt.train), main = "Residuals of Train Data")
+mean((Train$interest - predict(inrt.train, Train)) ^2)
+mean((Test$interest - predict(inrt.test, Test)) ^2)
+```
+The train MSE is 0.0012 while the test MSE is 0.0013 which shows that our model is overfitting our data as it performs better in training than testing. 
+
+
+#### Forecasting
+
+```{r 14it, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+inrt.fr <- forecast(inrt.ar, 10)
+plot(inrt.fr, main = "Interest Rate Differences")
+```
+
+Again, visually the forecast seems to fit our data well and continues the general trend without any notable anomalies.
+
+``` {r itforecast, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+inrtdifferences <- c(inrt.fr$mean)
+
+# Loop creating the series of forecasted diamond prices based on the differences.
+inrtseries <- vector(length = 5)
+inrtseries[1] <- -0.84
+for (i in 2:10) {
+  inrtseries[i] <- inrtseries[i-1] + inrtdifferences[i-1] 
+}
+
+# Transforming this into a dataset and combining with the dates.
+forecastedinrt <- c(dia$`interest rate`, inrtseries)
+forecastedinrt <- as.data.frame(forecastedinrt)
+forecastedinrt$dates <- c(as_date(c("2021-06-14","2021-06-13","2021-06-12","2021-06-11","2021-06-10","2021-06-09","2021-06-08","2021-06-07","2021-06-06","2021-06-05")), dia$`date`)
+forecastedinrt$forecast <- forecastedinrt$dates > "2021-06-05"
+
+# Plotting between April and June 2021.
+frplot.inrt <- ggplot(data = forecastedinrt, aes(x = dates, y = forecastedinrt, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2021-04-01"), as.Date("2021-06-14")) + ylim (-1,0) +
+  ggtitle("Interest Rate Forecast (April 2021 - June 2021)") +
+  xlab("Date") + ylab("Percent %")
+frplot.inrt
+```
+
+When we extrapolated the differences to our actual rate, the forecast seems to indicate that interests will more or less level out during the 10 days its observing. However, its important to note that since the pandemic, the interest rate fluctuated significantly throughout the week, and the forecast seems to capture this fluctuation despite some sizable margins of error.
+
+
+### Fed Rate
+
+```{r 23, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+yfed <- differenced_data[,"fed"]
+```
+
+#### Fitting the Model
+
+```{r 12fed, error=TRUE, message=FALSE, echo=FALSE, fig.align='center', warning = FALSE}
+fed.ar = ar(yfed, aic=TRUE, order.max = NULL, method = "ols")
+fed.ar$aic
+fed.ar = ar(yfed, aic=TRUE, order.max = 12, method = "ols")
+tsdisplay(fed.ar$resid)
+```
+
+The AIC is lowest at an order of 12 therefore, that will be our max order.
+
+The time-series plot of residuals, as well as the ACF and PACF plots, reveal that our the federal funds rate is likely not a suitable variable for an autoregressive model; the way data was originally distributed does not lend itself well to this type of analysis primarily because this variable does not fluctuate with time, but rather at the whim of the Federal Reserve. For this reason, we will unfortunately be discarding this variable moving forward.
+
+### Autoregressive (AR) Model Conclusions
+
+The autoregressive model, as the name suggests, regresses a variable's previous lags against itself to fit time-series data. While it is powerful for some variables, it may be less so for others and this is evident from our analysis above. The key insights we used are from the cross-validation and MSEs, in which the difference of diamond prices performed worst and overfit the data significantly, while inflation rate seemed to perform best in new data. Having accounted for stationarity, these results likely mean there are some other effects influencing the variables which are not captured within in the model.
+
+Here, we are testing the AIC and BIC of our test data models to see which has the lowest and thus performs the best:
+
+```{r 31, error=TRUE}
+AIC(dia.test, gold.test,  infr.test,  inrt.test) 
+BIC(dia.test, gold.test,  infr.test,  inrt.test)
+```
+
+In both tests, it seems that the interest rate autoregressive model performed best. This makes sense as the interest rate is the measure that is least influenced by outside factors as the Fed only targets inflation and the funds rate, therefore movements in interest are somewhat more autonomous. However, it is important to keep in mind that while AIC and BIC are useful measures, they have a strong preference towards less complex models thus, even if our model is very accurate, too much complexity (ie high `order.max`) will be penalized more.
+
+# ARDL Models
+
+An Autoregressive Distributed Lag Model (ARDL) is similar to an autoregressive model but it instead compares not only the target variable to its own lags but to the lags of other variables as well. It takes the general form:
+
+$Y_t= α +β_1 Y_{t-1} + β_2 Y_{t-2} + ...+ β_p Y_{t-p}+ γ_1 X_{1,t-1} + γ_2 X_{1,t-2} + ...+  γ_p X_{1,t-p} +ε_t$
+
+Therefore, for this type of model, I'll be using them on diamond prices and gold prices with inflation and interest to see which model fits best. I imagine that this model should be more powerful as prices are typically heavily influenced to inflation and interest.
+
+### Diamond Price
+
+#### Fitting the Model
+
+```{r 32, error=TRUE, fig.align='center'}
+# Again, only showing the code for the first variable
+library(dynlm)
+Du_ts = diff(diampr.ts)
+Fu_ts = diff(infl.ts)
+Hu_ts = diff(intr.ts)
+# Diamond vs only inflation
+diapr.ardl1 = dynlm(Du_ts ~ L(Du_ts,1) + L(Fu_ts,0:2))
+summary(diapr.ardl1)
+tsdisplay(diapr.ardl1$resid)
+# Diamond vs only interest
+diapr.ardl2 = dynlm(Du_ts ~ L(Du_ts,1) + L(Hu_ts,0:1))
+summary(diapr.ardl2)
+tsdisplay(diapr.ardl2$resid)
+# Diamond vs interest and inflation
+diapr.ardl3 = dynlm(Du_ts ~ L(Du_ts,1) + L(Fu_ts,0:1) + L(Hu_ts,0:1))
+summary(diapr.ardl3)
+tsdisplay(diapr.ardl3$resid)
+# Compare
+AIC(diapr.ardl1,diapr.ardl2,diapr.ardl3)
+BIC(diapr.ardl1,diapr.ardl2,diapr.ardl3)
+```
+
+Here we are comparing three different ways of modeling the ARDL function of diamond prices by comparing against the interest rate, inflation rate, and both of these together. It is important to note that for this we are using the difference of the variables. As per the residual plots, we can see that the PACF shows the first few lags are significantly negatively correlated and that our model has some structure which is a bit concerning. Ultimately, given the AIC and BIC of each model, it seems that diamond price is best modeled with both inflation and interest rates. This could make sense given that there is likely some multicollinearity occurring between the inflation and interest rates as these two economic factors are related.
+
+#### Test-Train Cross-Validation
+
+```{r 33, error=TRUE, fig.align='center', warning=FALSE}
+set.seed(1)
+Row.number <- sample(1:nrow(differenced_data), 0.67*nrow(differenced_data))
+Trains = differenced_data[Row.number,]
+Tests = differenced_data[-Row.number,] 
+dim(Trains)
+dim(Tests)
+infl_tts = ts(Trains$`inflation rate`,start=c(1), end=c(1134), frequency=6)
+intr_tts = ts(Trains$`interest rate`,start=c(1), end=c(1134), frequency=6)
+diapr_tts = ts(Trains$`diamond price`,start=c(1), end=c(1134), frequency=6)
+du_tts = diff(diapr_tts)
+fu_tts = diff(infl_tts)
+hu_tts = diff(intr_tts)
+diadyn.tr = dynlm(du_tts ~ L(du_tts,1) + L(fu_tts,1)+L(hu_tts,1), data = Trains)
+infl_tst = ts(Tests$`inflation rate`,start=c(1), end=c(1134), frequency=6)
+intr_tst = ts(Tests$`interest rate`,start=c(1), end=c(1134), frequency=6)
+diapr_tst = ts(Tests$`diamond price`,start=c(1), end=c(1134), frequency=6)
+du_tst = diff(diapr_tst)
+fu_tst = diff(infl_tst)
+hu_tst = diff(intr_tst)
+diadyn.te = dynlm(du_tst ~ L(du_tst,1) + L(fu_tst,1)+L(hu_tst), data = Tests)
+mean((Trains$`diamond price` - predict(diadyn.tr, Trains)) ^2)
+mean((Tests$`diamond price` - predict(diadyn.te, Tests)) ^2)
+```
+The test-train cross-validation for our ARDL model produced a train MSE of 38.4 and a test MSE of 347.0. We used inflation rate as the independent variable because this was the best model given our AIC and BIC. Evidently, there is a pretty substantial difference between these results and show that our model is overfitting the data and does not perform well in a general setting. However, this was also the case for the previous AR model so this doesn't serve to elucidate anything about which model to use.
+
+#### Forecasting
+
+```{r 34, error=TRUE, fig.align='center'}
+# Forecasting the ardl model
+library(dLagM)
+data = as.data.frame(differenced_data[1:1133,])
+du_dts <- diff((ts(data$diamond,start=c(1), end=c(1134), frequency=1)))
+fu_dts <- diff((ts(data$inflation,start=c(1), end=c(1134), frequency=1)))
+hu_dts <- diff((ts(data$interest,start=c(1), end=c(1134), frequency=1)))
+
+# Fitting the model for forecasting
+diapr.ardl2Dlm  = ardlDlm(formula = du_dts ~ fu_dts + hu_dts, data, p = 1, q=2)
+x.new =  matrix(c(1:10), ncol = 10, nrow = 2)
+diapr.ardl2f <- dLagM::forecast(diapr.ardl2Dlm, x = x.new, h = 10, 
+                interval = TRUE, level = 0.90, nSim = 100)
+
+# Extracting the forecasts and taking the logarithm 
+diafdifferences <- log(abs(c(diapr.ardl2f$forecast$Forecast)))
+
+series <- vector(length = 10)
+series[1] <- 10385.16
+for (i in 2:10) {
+  series[i] <- series[i-1] + diafdifferences[i] 
+}
+
+# Transforming this into a dataset and combining with the dates.
+forecasteddiaf <- c(rev(series),dia$`diamond price`)
+forecasteddiaf <- as.data.frame(forecasteddiaf)
+forecasteddiaf$dates <- c(as.Date(c("2021-06-14","2021-06-13","2021-06-12","2021-06-11","2021-06-10","2021-06-09","2021-06-08","2021-06-07","2021-06-06","2021-06-05")), dia$`date`)
+forecasteddiaf$forecast <- forecasteddiaf$dates > "2021-06-05"
+
+# Plotting between April and June 2021.
+frplot.diaf <- ggplot(data = forecasteddiaf, aes(x = dates, y = forecasteddiaf, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2021-04-01"), as.Date("2021-06-14")) + ylim(10000, 10500) +
+  ggtitle("Diamond Price ARDL Forecast (April 2021 - June 2021)") +
+  xlab("Date") + ylab("Price USD")
+frplot.diaf
+```
+
+Our forecast for the ARDL model for diamond prices based on inflation rates shows a somewhat steeper than for the AR model with the data points varying significantly less. Given the residuals, the cross-validation, and the shape of this forecast, I am inclined to believe that the basic autoregressive model is better for diamond prices. This is unexpected because I would expect there to be some relationship between inflation and prices as these are economically related.
+
+### Gold Price
+
+#### Fitting the Model
+
+```{r 32g, error=TRUE, fig.align='center', echo=FALSE}
+# Again, only showing the code for the first variable
+library(dynlm)
+Gu_ts = diff(goldpr.ts)
+Fu_ts = diff(infl.ts)
+Hu_ts = diff(intr.ts)
+# Diamond vs only inflation
+goldpr.ardl1 = dynlm(Gu_ts ~ L(Gu_ts,1) + L(Fu_ts,0:1))
+summary(goldpr.ardl1)
+tsdisplay(goldpr.ardl1$resid)
+# Diamond vs only interest
+goldpr.ardl2 = dynlm(Gu_ts ~ L(Gu_ts,1) + L(Hu_ts,0:2))
+summary(goldpr.ardl2)
+tsdisplay(goldpr.ardl2$resid)
+# Diamond vs interest and inflation
+goldpr.ardl3 = dynlm(Gu_ts ~ L(Gu_ts,1) + L(Fu_ts,1) + L(Hu_ts,0:1))
+summary(goldpr.ardl3)
+tsdisplay(goldpr.ardl3$resid)
+# Compare
+AIC(goldpr.ardl1,goldpr.ardl2,goldpr.ardl3)
+BIC(goldpr.ardl1,goldpr.ardl2,goldpr.ardl3)
+```
+In this case, when looking at the ARDL models for gold price, our best model in both R-squared and in the measures of AIC and BIC is when using only interest as the independent variable. The PACF does have some structure to the lags, with almost all of the ones below 20 being negative and significant. This is not great but should work well enough moving forward.
+
+#### Test-Train Cross-Validation
+
+```{r 33g, error=TRUE, fig.align='center', warning=FALSE, echo=FALSE}
+infl_tts = ts(Trains$`inflation rate`,start=c(1), end=c(1134), frequency=6)
+intr_tts = ts(Trains$`interest rate`,start=c(1), end=c(1134), frequency=6)
+goldpr_tts = ts(Trains$`gold price`,start=c(1), end=c(1134), frequency=6)
+gu_tts = diff(goldpr_tts)
+fu_tts = diff(infl_tts)
+hu_tts = diff(intr_tts)
+golddyn.tr = dynlm(gu_tts ~ L(gu_tts,1) + L(hu_tts,1), data = Trains)
+infl_tst = ts(Tests$`inflation rate`,start=c(1), end=c(1134), frequency=6)
+intr_tst = ts(Tests$`interest rate`,start=c(1), end=c(1134), frequency=6)
+goldpr_tst = ts(Tests$`gold price`,start=c(1), end=c(1134), frequency=6)
+gu_tst = diff(goldpr_tst)
+fu_tst = diff(infl_tst)
+hu_tst = diff(intr_tst)
+golddyn.te = dynlm(gu_tst ~ L(gu_tst,1) + L(hu_tst,1), data = Tests)
+mean((Trains$`gold price` - predict(golddyn.tr, Trains)) ^2)
+mean((Tests$`gold price` - predict(golddyn.te, Tests)) ^2)
+```
+The gold price model cross-validation reveals that our model performs fairly well and, similar to its AR model, performs well in a general setting. The train MSE is 165.7 while the test MSE is 107.1. 
+
+#### Forecasting
+
+```{r 34g, error=TRUE, fig.align='center', echo=FALSE}
+# Forecasting the ardl model
+gu_dts <- ts(data$gold, start=c(1), end=c(1134), frequency=1)
+
+# Fitting the model for forecasting
+goldpr.ardl3Dlm  = ardlDlm(formula = gu_dts ~ hu_dts, data, p=1,q=2)
+x.new =  matrix(c(1:10), ncol = 10, nrow = 1)
+goldpr.ardl2f <- dLagM::forecast(goldpr.ardl3Dlm, x = x.new, h = 10, 
+                interval = TRUE, level = 0.95, nSim = 100)
+
+# Extracting the forecasts and taking the logarithm 
+goldfdifferences <- -log(abs((c(goldpr.ardl2f$forecast$Forecast))))
+
+series <- vector(length = 10)
+series[1] <- 1890.97
+for (i in 2:10) {
+  series[i] <- series[i-1] + goldfdifferences[i-1] 
+}
+
+# Transforming this into a dataset and combining with the dates.
+forecastedgoldf <- c(rev(series),dia$`gold price`)
+forecastedgoldf <- as.data.frame(forecastedgoldf)
+forecastedgoldf$dates <- c(as_date(c("2021-06-14","2021-06-13","2021-06-12","2021-06-11","2021-06-10","2021-06-09","2021-06-08","2021-06-07","2021-06-06","2021-06-05")), dia$`date`)
+forecastedgoldf$forecast <- forecastedgoldf$dates > "2021-06-05"
+
+# Plotting between April and June 2021.
+frplot.goldf <- ggplot(data = forecastedgoldf, aes(x = dates, y = forecastedgoldf, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2021-04-01"), as.Date("2021-06-14")) +
+  ggtitle("Gold Price ARDL Forecast (April 2021 - June 2021)") +
+  xlab("Date") + ylab("Price USD")
+frplot.goldf
+```
+The ARDL model forecast in gold prices is interesting; it continues well from the existing data however, it predicts a much steeper decline than in the autoregressive model. Nevertheless, the forecast points to the price dipping slightly in the next ten days with the peak being just over 1900 USD. The lower MSE of this model as well as the residual plot and the fit of the forecast seems to indicate that the ARDL model is performing better than the AR model for gold prices.
+
+# Vector Autoregression (VAR)
+
+Vector Autoregressive (VAR) models take the principles of ARDL model (ie regressing on multiple variables' lags) and expands on them by having two or more dependent/endogenous variables and using the lags of both in a system of simultaneous equations to model the variables. It has the general form: 
+
+$Y_t=A_1 Y_{t-1} + A_2 Y_{t-2} + ...+ A_p Y_{t-p} +ε_t$
+
+While this may sound confusing, it is essentially a more robust method which treats every variable as endogenous and is used to look at the dynamic interactions between variables. 
+
+For this section, I will change up the structure of the code and instead develop both the gold and diamond models concurrently. Therefore, it will be easier to compare them. So, firstly we will be fitting the models
+
+```{r 39, error=FALSE, echo=FALSE, message = FALSE}
+library(lattice)
+library(foreign)
+library(MASS)
+require(stats)
+require(stats4)
+library(KernSmooth)
+library(fastICA)
+library(cluster)
+library(rpart)
+library(pan)
+library(DAAG)
+library(TTR)
+library(tis)
+require("datasets")
+require(graphics)
+require(astsa)
+library(xtable)
+library(stats)
+library(TSA)
+library(timeSeries)
+library(fUnitRoots)
+library(fBasics)
+library(timsac)
+library(fpp)
+library(strucchange)
+#library(MSBVAR)
+library(LINselect)
+library(vars)
+library(dlnm)
+library('KFAS')
+library('FKF')
+```
+
+### Fitting the Model
+
+```{r 40, error=TRUE}
+# Creating a flipped dataset 
+dia_data <- as.data.frame(ts(dia))
+dia_data$diamond <- rev(dia_data$`diamond price`)
+dia_data$gold <- rev(dia_data$`gold price`)
+dia_data$interest <- rev(dia_data$`interest rate`)
+dia_data$inflation <- rev(dia_data$`inflation rate`)
+# As before, I will show how the code works for diamonds and not show it for gold for the sake of brevity
+# First, we define our endogenous variables
+dia.vara=cbind(dia_data$inflation, dia_data$diamond)
+dia.a_tot= data.frame(dia.vara)
+# Then, select the appropriate lags
+VARselect(dia.a_tot, lag.max = 10)
+# Fit the model with correct lags 
+dia.vara_model=VAR(dia.a_tot,p=2)
+summary(dia.vara_model)
+
+# Repeat with interest rates
+dia.varb=cbind(dia_data$interest, dia_data$diamond)
+dia.b_tot= data.frame(dia.varb)
+VARselect(dia.b_tot, lag.max = 10)
+dia.varb_model=VAR(dia.b_tot,p=4)
+summary(dia.varb_model)
+
+# Repeat with both inflation and interest
+dia.varc=cbind(dia_data$inflation, dia_data$interest, dia_data$diamond)
+dia.c_tot= data.frame(dia.varc)
+VARselect(dia.c_tot, lag.max = 5)
+dia.varc_model=VAR(dia.c_tot,p=3)
+summary(dia.varc_model)
+```
+
+The results of fitting our diamond model give us much to think about; while the models for interest and inflation are great for their simplicity and high R-squared values, they have very negative log-likelihood functions which means they are not fitting the data very well. Alternatively, the model with all three variables has a very high log-likelihood, but I suspect it is more prone to overfitting the data given the high number of lags the AIC suggests its optimal. Therefore, to try correct this, the VARselect for the final model was limited to 5 lags of which it found the lags up to the 4th to be best for the model. Nevertheless, while this is likely the strongest model, it limits me in how rigorously I can test it given that many functions are incompatible with the number of variables in the model. So moving forward I will be using the VAR model of diamond price and inflation
+
+
+```{r 41, error=TRUE, echo=FALSE}
+g.vara=cbind(dia_data$inflation, dia_data$gold)
+g.a_tot= data.frame(g.vara)
+VARselect(g.a_tot, lag.max = 5)
+g.vara_model=VAR(g.a_tot,p=5)
+summary(g.vara_model)
+
+# Repeat with interest rates
+g.varb=cbind(dia_data$interest, dia_data$gold)
+g.b_tot= data.frame(g.varb)
+VARselect(g.b_tot, lag.max = 10)
+g.varb_model=VAR(g.b_tot,p=5)
+summary(g.varb_model)
+
+# Repeat with both inflation and interest
+g.varc=cbind(dia_data$inflation, dia_data$interest, dia_data$gold)
+g.c_tot= data.frame(g.varc)
+VARselect(g.c_tot, lag.max = 5)
+g.varc_model=VAR(g.c_tot,p=5)
+summary(g.varc_model)
+```
+
+We see a similar pattern emerge among the models for gold price with the most robust model being the one with all variables. Nevertheless, the issue remains the same so I must choose either interest or inflation as the other variable. Given the log-likelihoods of each model, it seems that the inflation rate model has a higher value and thus we will be using this model moving forward.
+
+
+### Cross-Correlation Function
+
+```{r 44, error=TRUE}
+ccf(dia_data$inflation, dia_data$diamond, ylab="Cross-Correlation Function", main = "CCF")
+ccf(dia_data$inflation, dia_data$gold,ylab="Cross-Correlation Function", main = "CCF")
+```
+
+The Cross-Correlation Function, much like the name suggests, is a measure of the correlation across the lags of the different variables. Here, we see that the CCF for inflation rate and diamond price show a positive correlation between the lags and the variables being considered. The lags around -20 are the most positively correlated and all the lags are statistically significant. Contrastingly,  the CCF for inflation rate and gold price show a negative correlation between the lags and the variables being considered. The most negatively correlated lags are centered around lag -20 and here too all lags are statistically significant. Therefore, both of these plots show that the variables do affect each other and have a relationship across many lags.
+
+### Granger Causality Test
+
+```{r 45, error=TRUE}
+grangertest(dia_data$`diamond price` ~ dia_data$`inflation rate`, order = 4)
+grangertest(dia_data$`gold price` ~ dia_data$`inflation rate`, order = 4)
+```
+
+According to the granger causality test, inflation rate affects diamond
+price and gold price in a statistically significant manner. Using the
+previous CCF, we can infer that higher inflation rates may increase
+diamond price while also decreasing gold price. This difference is possibly due to the role of gold as a reserve asset during economic instability.
+
+### Impulse Response Function
+
+```{r 46, error=TRUE}
+plot(irf(dia.vara_model, n.ahead=36))
+plot(irf(g.vara_model, n.ahead=36))
+```
+
+An Impulse-Response Function (IRF) plot is an impulse response function that demonstrates what happens to the dependent variable when a shock of the explanatory variable occurs. The first IRF plot of inflation rate with diamond price shows that when a shock occurs with inflation rate the diamond price will decrease continually. The second IRF plot of inflation rate with gold prices shows that when a shock occurs with inflation rate the gold price will quickly stabilize. This is to be expected, again, because of gold's role as a reserve asset.
+
+### Residuals, ACF, and PACF
+
+```{r 47, error=TRUE}
+tsdisplay(residuals(dia.vara_model)[,2])
+tsdisplay(residuals(g.vara_model)[,2])
+```
+
+Both residual plots demonstrate that the data is stationary and returns to a mean for both models. Furthermore, the ACF and PACF plots show that there is no significant structure to our models which only reinforces the idea of stationarity in our models. The model of diamond prices show that there is only one significant lag at 23, while the gold model has significant lags at 6, 16, and 23. 
+
+### Test-Train Cross-Validation
+
+```{r 48, error=TRUE}
+set.seed(1)
+Row.number <- sample(1:nrow(dia), 0.67*nrow(dia))
+Trainn = dia[Row.number,]
+Testn = dia[-Row.number,] 
+dim(Trainn)
+dim(Testn)
+infl_ttsn = ts(Trainn$`inflation rate`,start=c(1), end=c(1134), frequency=6)
+diapr_ttsn = ts(Trainn$`diamond price`,start=c(1), end=c(1134), frequency=6)
+gold_ttsn = ts(Trainn$`gold price`,start=c(1), end=c(1134), frequency=6)
+du_ttsn = diff(diapr_ttsn)
+fu_ttsn = diff(infl_ttsn)
+gu_ttsn = diff(gold_ttsn)
+Reg.moddiatn = dynlm(du_ttsn ~ L(du_ttsn,1) + L(fu_ttsn,1), data = Trainn)
+Reg.modgoldtn = dynlm(gu_ttsn ~ L(gu_ttsn,1) + L(fu_ttsn,1), data = Trainn)
+infl_tstn = ts(Testn$`inflation rate`,start=c(1), end=c(1134), frequency=6)
+diapr_tstn = ts(Testn$`diamond price`,start=c(1), end=c(1134), frequency=6)
+gold_tstn = ts(Testn$`gold price`,start=c(1), end=c(1134), frequency=6)
+du_tstn = diff(diapr_tstn)
+fu_tstn = diff(infl_ttsn)
+gu_tstn = diff(gold_ttsn)
+Reg.moddiats = dynlm(du_tstn ~ L(du_tstn,1) + L(fu_tstn,1), data = Testn)
+Reg.modgoldts = dynlm(gu_tstn ~ L(gu_tstn,1) + L(fu_tstn,1), data = Testn)
+mean((Trainn$`diamond price` - predict(Reg.moddiatn, Trainn)) ^2)
+mean((Testn$`diamond price` - predict(Reg.moddiats, Testn)) ^2)
+
+mean((Trainn$`gold price` - predict(Reg.modgoldtn, Trainn)) ^2)
+mean((Testn$`gold price` - predict(Reg.modgoldts, Testn)) ^2)
+```
+
+Splitting the data into test and train datasets and comparing model performance across both shows that we had relatively similar values for the test and train MSEs of both gold and diamond. For gold the test MSE was higher than the train MSE while for diamond, the test MSE was lower than the train MSE. This means that the gold model is slightly overfitting while the diamond model seems to be performing well.
+
+### Forecasting 
+
+```{r 49d, error=TRUE}
+var.predict = predict(object=dia.vara_model, n.ahead=52)
+
+# Extracting the forecasts 
+dia.varforecast <- ((c(var.predict$fcst$X2[1:52,1])))
+
+# Transforming this into a dataset and combining with the dates.
+forecasteddiavf <- c(rev(dia.varforecast),dia$`diamond price`)
+forecasteddiavf <- as.data.frame(forecasteddiavf)
+
+dates <- vector(length = 52)
+dates[1] <- as_date("2021-06-05")
+for (i in 2:52) {
+  dates[i] <- dates[i-1] + 1
+}
+
+forecasteddiavf$dates <- c(as_date(c(rev(dates))), dia_data$`date`)
+forecasteddiavf$forecast <- forecasteddiavf$dates > "2021-06-05"
+
+# Plotting between April 2018 and June 2021.
+frplot.diavf <- ggplot(data = forecasteddiavf, aes(x = dates, y = forecasteddiavf, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2018-04-28"), as.Date("2021-07-26")) +
+  ggtitle("Diamond Price VAR Forecast (April 2018 - June 2021)") +
+  xlab("Date") + ylab("Price USD")
+frplot.diavf
+```
+```{r 49g, error=TRUE}
+var.predict.2 = predict(object=g.vara_model, n.ahead=52)
+
+# Extracting the forecasts 
+g.varforecast <- ((c(var.predict.2$fcst$X2[1:52,1])))
+
+# Transforming this into a dataset and combining with the dates.
+forecastedgoldvf <- c(rev(g.varforecast),dia$`gold price`)
+forecastedgoldvf <- as.data.frame(forecastedgoldvf)
+
+forecastedgoldvf$dates <- c(as_date(c(rev(dates))), dia_data$`date`)
+forecastedgoldvf$forecast <- forecastedgoldvf$dates > "2021-06-05"
+
+# Plotting between April 2018 and June 2021.
+frplot.goldvf <- ggplot(data = forecastedgoldvf, aes(x = dates, y = forecastedgoldvf, group = forecast)) +
+  geom_point() +
+  geom_smooth(aes(color = forecast), method = "loess") +
+  xlim(as.Date("2018-04-28"), as.Date("2021-07-26")) +
+  ggtitle("Gold Price VAR Forecast (April 2018 - June 2021)") +
+  xlab("Date") + ylab("Price USD")
+frplot.goldvf
+```
+
+Forecasting with VAR allows for more long-term predictions therefore, unlike with the AR and ARDL models where we only forecasted 10 days into the future, here we predicted 52 days into the future. That is why the scale of the dates has been made longer to better demonstrate how these forecasts fit the whole span of the data.
+
+In the case of the diamond price forecast, the forecast seemingly follows the trend of the diamond price to increase and fits the data nicely. Contrastingly, gold price does also fit the data but predicts a decrease instead of increase and a much steeper one than with the ARDL forecast. Therefore, the VAR forecasts seem to work well and allow for further forecasting than the other models.
+
+
+### FEVD Plots
+
+```{r 50, error=TRUE}
+plot(fevd(dia.vara_model, n.ahead = 5))
+plot(fevd(g.vara_model, n.ahead = 5))
+```
+
+The FEVD plot shows us the Forecast Error Variance Decomposition of both our models and how significant the shocks to either model will be to the forecast of errors. Based on these two plots the shocks to inflation rate will have very little effect on either of the models with some residual effect visible on the gold model.
+
+# Conclusion
+
+The dataset I chose for this comparative time-series analysis revolved around various economic measures from 2018 to 2021. These variables are date, diamond price, gold price, inflation rate, interest rate, and the federal funds rate. The first stage of this analysis sought to understand the data through basic plots such as graphs, histograms, and summary tables. This revealed the general shape of each variable across time and gave me a basis for comparison for the upcoming forecasts. Following this, some pre-processing was necessary in converting the data into time-series and correcting for stationarity based on the residual and PACF plots of the non-corrected data suggesting that the data was not stationary. This allowed the data to be analyzed by both Autoregressive (AR) and Autoregressive Distributed Lag (ARDL) models.
+
+In terms of the modeling, I ran an utoregressive model on every variable to see how well the current value of the variable is predicted by its previous lags. This process involved fitting the model, evaluating its performance, and then producing a forecast 10-steps into the future. With these models we found that the AR model was more powerful for the rates (ie interest and inflation) than with the prices. This makes sense given the both of these rate have economic relationships with price thus the AR model cannot capture this. Therefore, I expected that modeling with an ARDL model, which includes other variables, would be more powerful and modeled both gold and diamond prices using this method. Firstly, I determined that they would be best modeled with inflation instead of interest as the inflation rate seemed to perform best. The forecasts did seem to follow a similar trend to that of the AR models but were more robust and performed better despite some overfitting with the diamond ARDL model. However, the final model I used was a Vector Autoregression (VAR) which expands on the ARDL model and I expected to be more powerful in modeling these variables. This process differed from the other models as there are other effects that need to be tested for and analyzed to determine the suitability of the model. Nevertheless, the models performed well in these tests and fit the model well allowing for a more powerful forecast 52-steps into the future which fit the data and performed very well. Therefore, the results of this comparative time-series analysis indicated that both diamond and gold prices are best modeled using a Vector Autoregression with inflation rates.
