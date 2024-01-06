@@ -1039,7 +1039,7 @@ We see a similar pattern emerge among the models for gold price with the most ro
 
 ### Cross-Correlation Function
 
-```{r 44, error=TRUE}
+```{r 44, error=TRUE, fig.align='center'}
 ccf(dia_data$inflation, dia_data$diamond, ylab="Cross-Correlation Function", main = "CCF")
 ccf(dia_data$inflation, dia_data$gold,ylab="Cross-Correlation Function", main = "CCF")
 ```
@@ -1060,7 +1060,7 @@ diamond price while also decreasing gold price. This difference is possibly due 
 
 ### Impulse Response Function
 
-```{r 46, error=TRUE}
+```{r 46, error=TRUE, fig.align='center'}
 plot(irf(dia.vara_model, n.ahead=36))
 plot(irf(g.vara_model, n.ahead=36))
 ```
@@ -1069,7 +1069,7 @@ An Impulse-Response Function (IRF) plot is an impulse response function that dem
 
 ### Residuals, ACF, and PACF
 
-```{r 47, error=TRUE}
+```{r 47, error=TRUE, fig.align='center'}
 tsdisplay(residuals(dia.vara_model)[,2])
 tsdisplay(residuals(g.vara_model)[,2])
 ```
@@ -1112,7 +1112,7 @@ Splitting the data into test and train datasets and comparing model performance 
 
 ### Forecasting 
 
-```{r 49d, error=TRUE}
+```{r 49d, error=TRUE, fig.align='center'}
 var.predict = predict(object=dia.vara_model, n.ahead=52)
 
 # Extracting the forecasts 
@@ -1140,7 +1140,8 @@ frplot.diavf <- ggplot(data = forecasteddiavf, aes(x = dates, y = forecasteddiav
   xlab("Date") + ylab("Price USD")
 frplot.diavf
 ```
-```{r 49g, error=TRUE}
+
+```{r 49g, error=TRUE, echo=FALSE, fig.align='center'}
 var.predict.2 = predict(object=g.vara_model, n.ahead=52)
 
 # Extracting the forecasts 
@@ -1170,7 +1171,7 @@ In the case of the diamond price forecast, the forecast seemingly follows the tr
 
 ### FEVD Plots
 
-```{r 50, error=TRUE}
+```{r 50, error=TRUE, fig.align='center'}
 plot(fevd(dia.vara_model, n.ahead = 5))
 plot(fevd(g.vara_model, n.ahead = 5))
 ```
@@ -1181,4 +1182,4 @@ The FEVD plot shows us the Forecast Error Variance Decomposition of both our mod
 
 The dataset I chose for this comparative time-series analysis revolved around various economic measures from 2018 to 2021. These variables are date, diamond price, gold price, inflation rate, interest rate, and the federal funds rate. The first stage of this analysis sought to understand the data through basic plots such as graphs, histograms, and summary tables. This revealed the general shape of each variable across time and gave me a basis for comparison for the upcoming forecasts. Following this, some pre-processing was necessary in converting the data into time-series and correcting for stationarity based on the residual and PACF plots of the non-corrected data suggesting that the data was not stationary. This allowed the data to be analyzed by both Autoregressive (AR) and Autoregressive Distributed Lag (ARDL) models.
 
-In terms of the modeling, I ran an utoregressive model on every variable to see how well the current value of the variable is predicted by its previous lags. This process involved fitting the model, evaluating its performance, and then producing a forecast 10-steps into the future. With these models we found that the AR model was more powerful for the rates (ie interest and inflation) than with the prices. This makes sense given the both of these rate have economic relationships with price thus the AR model cannot capture this. Therefore, I expected that modeling with an ARDL model, which includes other variables, would be more powerful and modeled both gold and diamond prices using this method. Firstly, I determined that they would be best modeled with inflation instead of interest as the inflation rate seemed to perform best. The forecasts did seem to follow a similar trend to that of the AR models but were more robust and performed better despite some overfitting with the diamond ARDL model. However, the final model I used was a Vector Autoregression (VAR) which expands on the ARDL model and I expected to be more powerful in modeling these variables. This process differed from the other models as there are other effects that need to be tested for and analyzed to determine the suitability of the model. Nevertheless, the models performed well in these tests and fit the model well allowing for a more powerful forecast 52-steps into the future which fit the data and performed very well. Therefore, the results of this comparative time-series analysis indicated that both diamond and gold prices are best modeled using a Vector Autoregression with inflation rates.
+In terms of the modeling, I ran an autoregressive model on every variable to see how well the current value of the variable is predicted by its previous lags. This process involved fitting the model, evaluating its performance, and then producing a forecast 10-steps into the future. With these models we found that the AR model was more powerful for the rates (ie interest and inflation) than with the prices. This makes sense given the both of these rate have economic relationships with price thus the AR model cannot capture this. Therefore, I expected that modeling with an ARDL model, which includes other variables, would be more powerful and modeled both gold and diamond prices using this method. Firstly, I determined that they would be best modeled with inflation instead of interest as the inflation rate seemed to perform best. The forecasts did seem to follow a similar trend to that of the AR models but were more robust and performed better despite some overfitting with the diamond ARDL model. However, the final model I used was a Vector Autoregression (VAR) which expands on the ARDL model and I expected to be more powerful in modeling these variables. This process differed from the other models as there are other effects that need to be tested for and analyzed to determine the suitability of the model. Nevertheless, the models performed well in these tests and fit the model well allowing for a more powerful forecast 52-steps into the future which fit the data and performed very well. Therefore, the results of this comparative time-series analysis indicated that both diamond and gold prices are best modeled using a Vector Autoregression with inflation rates.
